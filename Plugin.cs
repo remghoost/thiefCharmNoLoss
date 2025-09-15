@@ -2,38 +2,61 @@ using GlobalSettings;
 using HarmonyLib;
 using System.Reflection;
 using BepInEx;
+using TeamCherry.SharedUtils;
+using UnityEngine;
+using BepInEx.Logging;
 
 namespace thiefCharmNoLoss;
 
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
 public class thiefCharmNoLoss : BaseUnityPlugin
 {
+    internal static ManualLogSource Log;
+
     void Awake()
     {
+        Log = Logger;
         var harmony = new Harmony("com.remghoost.thiefcharmnoloss");
         harmony.PatchAll();
     }
 }
 
 [HarmonyPatch(typeof(Gameplay))]
-[HarmonyPatch("Get")]
-class Gameplay_Get_Patch
+[HarmonyPatch("Awake")]
+class Gameplay_Awake_Patch
 {
-    static void Postfix(Gameplay __result)
+    static void Postfix(Gameplay __instance)
     {
-        if (__result == null) return;
+        var type = typeof(Gameplay);
 
-        // Zero out floats
-        typeof(Gameplay).GetField("thiefCharmGeoLossLooseChance", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.SetValue(__result, 0f);
+        void SetAndLog<T>(string fieldName, T newValue)
+        {
+            var field = type.GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field == null)
+            {
+                thiefCharmNoLoss.Log.LogWarning($"[Gameplay_Awake_Patch] Could not find field: {fieldName}");
+                return;
+            }
 
-        // Zero out MinMaxInt
-        var minMaxZero = new TeamCherry.SharedUtils.MinMaxInt(0, 0);
+            var oldValue = field.GetValue(__instance);
+            thiefCharmNoLoss.Log.LogInfo($"[Gameplay Awake] {fieldName} before: {oldValue}");
 
-        typeof(Gameplay).GetField("thiefCharmGeoLossCap", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.SetValue(__result, minMaxZero);
+            field.SetValue(__instance, newValue);
 
-        typeof(Gameplay).GetField("thiefCharmGeoLossLooseAmount", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.SetValue(__result, minMaxZero);
+            var updatedValue = field.GetValue(__instance);
+            thiefCharmNoLoss.Log.LogInfo($"[Gameplay Awake] {fieldName} after: {updatedValue}");
+        }
+
+        // Zero out float + MinMaxInt
+        SetAndLog("thiefCharmGeoLossLooseChance", 0f);
+        var minMaxZero = new MinMaxInt(0, 0);
+        SetAndLog("thiefCharmGeoLossCap", minMaxZero);
+        SetAndLog("thiefCharmGeoLossLooseAmount", minMaxZero);
+
+        // Nuke prefabs
+        SetAndLog<GameObject>("thiefCharmHeroHitPrefab", null);
+        SetAndLog<GameObject>("thiefSnatchEffectPrefab", null);
     }
 }
+
+
